@@ -1,9 +1,5 @@
 package ca.xvx.tracks;
 
-import ca.xvx.tracks.preferences.PreferenceConstants;
-
-import android.util.Log;
-
 import android.app.ExpandableListActivity;
 import android.app.ProgressDialog;
 import android.content.Context;
@@ -14,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.preference.PreferenceManager;
+import android.util.Log;
 import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -21,6 +18,8 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.ExpandableListView;
 import android.widget.Toast;
+import ca.xvx.tracks.persistence.DatabaseManager;
+import ca.xvx.tracks.preferences.PreferenceConstants;
 
 public class TaskListActivity extends ExpandableListActivity {
 	private static final String TAG = "TaskListActivity";
@@ -52,14 +51,31 @@ public class TaskListActivity extends ExpandableListActivity {
 		
 		_tla = new TaskListAdapter();
 		setListAdapter(_tla);
+		registerForContextMenu(getExpandableListView());
 		
 		if(!_prefs.getBoolean(PreferenceConstants.RUN, false)) {
 			Log.i(TAG, "This appears to be our first run; edit preferences");
-			startActivityForResult(new Intent(this, SettingsActivity.class), SETTINGS);
+			startActivityForResult(new Intent(this, SettingsActivity.class), SETTINGS);			
 		} else {
 			Log.v(TAG, "Fetching tasks");
+			configurePersistence();
+			loadList();
 			refreshList();
 		}
+	}
+	
+	private void configurePersistence() {
+		boolean persist = true;
+		if(persist) {
+			DatabaseManager.configurePersistence(getApplicationContext());			
+		}
+	}
+	
+	private void loadList() {		
+		TodoContext.loadAllContexts();
+		Project.loadAllProjects();
+		Task.loadAllTasks();
+		updateListView();
 	}
 
 	private void refreshList() {
@@ -87,21 +103,59 @@ public class TaskListActivity extends ExpandableListActivity {
 						p.dismiss();
 						Toast.makeText(context, getString(R.string.ERR_fetch), Toast.LENGTH_LONG).show();
 						break;
-					case TracksCommunicator.SUCCESS_CODE:
-						_tla.notifyDataSetChanged();
-						p.dismiss();
-
-						int ngroups = _tla.getGroupCount();
-						for(int g = 0; g < ngroups; g++) {
-							if(!((TodoContext)_tla.getGroup(g)).isHidden()) {
-								getExpandableListView().expandGroup(g);
-							}
-						}
-
-						registerForContextMenu(getExpandableListView());
+					case TracksCommunicator.SUCCESS_CODE:						
+//						p.dismiss();
+						
+						uploadList(p);
+//						updateListView();
+												
 						break;
 					}
 				}
+				
+			});
+		
+		Message.obtain(_commHandler, 0, a).sendToTarget();
+	}
+	
+	private void uploadList(final ProgressDialog p) {
+		final Context context = getExpandableListView().getContext();
+		p.setMessage(getString(R.string.MSG_uploading));
+		TracksAction a = new TracksAction(TracksAction.ActionType.UPLOAD_TASKS, null, new Handler() {
+				@Override
+				public void handleMessage(Message msg) {
+					switch(msg.what) {
+//					case TracksCommunicator.FETCH_CODE:
+//						p.setMessage(getString(R.string.MSG_fetching));
+//						break;
+//					case TracksCommunicator.PARSE_CODE:
+//						p.setMessage(getString(R.string.MSG_parsing));
+//						break;
+					case TracksCommunicator.PREFS_FAIL_CODE:
+						p.dismiss();
+						Toast.makeText(context, getString(R.string.ERR_badprefs), Toast.LENGTH_LONG).show();
+						break;
+//					case TracksCommunicator.PARSE_FAIL_CODE:
+//						p.dismiss();
+//						Toast.makeText(context, getString(R.string.ERR_parse), Toast.LENGTH_LONG).show();
+//						break;
+//					case TracksCommunicator.FETCH_FAIL_CODE:
+//						p.dismiss();
+//						Toast.makeText(context, getString(R.string.ERR_fetch), Toast.LENGTH_LONG).show();
+//						break;
+					case TracksCommunicator.UPDATE_FAIL_CODE:
+						p.dismiss();
+						Toast.makeText(context, getString(R.string.ERR_upload), Toast.LENGTH_LONG).show();
+						break;
+					case TracksCommunicator.SUCCESS_CODE:						
+						p.dismiss();
+						
+						updateListView();
+												
+						break;
+					}
+				}
+				
 			});
 		
 		Message.obtain(_commHandler, 0, a).sendToTarget();
@@ -121,7 +175,7 @@ public class TaskListActivity extends ExpandableListActivity {
 			int gid = getExpandableListView().getPackedPositionGroup(info.packedPosition);
 			TodoContext c = (TodoContext)_tla.getGroup(gid);
 			Intent i = new Intent(this, ContextEditorActivity.class);
-			i.putExtra("context", c.getId());
+			i.putExtra("context", c.getDbKeyId());
 			startActivityForResult(i, EDIT_CONTEXT);
 		}
 	}
@@ -139,7 +193,7 @@ public class TaskListActivity extends ExpandableListActivity {
 		switch(item.getItemId()) {
 		case R.id.edit_task:
 			Intent i = new Intent(this, TaskEditorActivity.class);
-			i.putExtra("task", t.getId());
+			i.putExtra("task", t.getDbKeyId());
 			startActivityForResult(i, EDIT_TASK);
 			return true;
 		case R.id.delete_task:
@@ -162,6 +216,7 @@ public class TaskListActivity extends ExpandableListActivity {
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 		if(requestCode == SETTINGS) {
 			Log.v(TAG, "Returned from settings");
+			configurePersistence();
 			refreshList();
 		}
 		
@@ -195,7 +250,7 @@ public class TaskListActivity extends ExpandableListActivity {
 		Task t = (Task)_tla.getChild(group, position);
 
 		Intent i = new Intent(this, TaskEditorActivity.class);
-		i.putExtra("task", t.getId());
+		i.putExtra("task", t.getDbKeyId());
 		startActivityForResult(i, EDIT_TASK);
 		
 		return true;
@@ -236,5 +291,19 @@ public class TaskListActivity extends ExpandableListActivity {
 		super.onConfigurationChanged(newConfig);
 		Log.i(TAG, "Configuration changed.");
 		getExpandableListView().requestLayout();
+	}
+
+	private void updateListView() {
+		_tla.notifyDataSetChanged();
+		expandAllGroups();
+	}
+	
+	private void expandAllGroups() {
+		int ngroups = _tla.getGroupCount();
+		for(int g = 0; g < ngroups; g++) {
+			if(!((TodoContext)_tla.getGroup(g)).isHidden()) {
+				getExpandableListView().expandGroup(g);
+			}
+		}
 	}
 }

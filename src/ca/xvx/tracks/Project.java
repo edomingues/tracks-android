@@ -2,11 +2,16 @@ package ca.xvx.tracks;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Vector;
 
+import ca.xvx.tracks.persistence.IProjectDao;
+
 public class Project {
 	public enum ProjectState { ACTIVE, HIDDEN, COMPLETED };
+	
+	private long dbKeyId = -1;
 	
 	private int _id;
 	private String _name;
@@ -15,10 +20,15 @@ public class Project {
 	private ProjectState _state;
 	private TodoContext _defaultContext;
 	
+	private boolean outdated = false;
+	
 	// Singleton list of projects
-	private static final Map<Integer, Project> PROJECTS;
+	private static final Map<Long, Project> PROJECTS;
+	
+	private static IProjectDao projectDao = IProjectDao.NULL;
+	
 	static {
-		PROJECTS = new HashMap<Integer, Project>();
+		PROJECTS = new HashMap<Long, Project>();
 	}
 
 	private Project() {
@@ -35,16 +45,26 @@ public class Project {
 		_defaultContext = defaultContext;
 	}
 	
-	public Project(int id, String name, String description, int position, ProjectState state, TodoContext defaultContext) throws DuplicateProjectException {
+	public Project(int id, String name, String description, int position, ProjectState state, TodoContext defaultContext) {
 		this(name, description, position, state, defaultContext);
 		
-		if(PROJECTS.containsKey(id)) {
-			throw new DuplicateProjectException();
-		}
-		
 		_id = id;
-
-		PROJECTS.put(id, this);
+	}
+	
+	public long getDbKeyId() {
+		return dbKeyId;
+	}
+	
+	public void setDbKeyId(long id) {
+		long oldId = dbKeyId;
+		
+		dbKeyId = id;
+		
+		if(oldId < 0) {
+			if(!PROJECTS.containsKey(id)) {
+				PROJECTS.put(id, this);
+			}
+		}
 	}
 	
 	public int getId() {
@@ -66,15 +86,7 @@ public class Project {
 		return _defaultContext;
 	}
 	public void setId(int id) {
-		int oid = _id;
-		
-		_id = id;
-
-		if(oid < 0) {
-			if(!PROJECTS.containsKey(id)) {
-				PROJECTS.put(id, this);
-			}
-		}
+		_id = id;		
 	}
 	public String setName(String name) {
 		String on = _name;
@@ -101,14 +113,26 @@ public class Project {
 		_defaultContext = defaultContext;
 		return old;
 	}
+	
+	public boolean isOutdated() {
+		return outdated;
+	}
+	
+	public void setOutdated(boolean outdated) {
+		this.outdated = outdated;
+	}
 
 	@Override
 	public String toString() {
 		return _name;
 	}
 
-	public static Project getProject(int id) {
+	public static Project getProject(long id) {
 		return PROJECTS.get(id);
+	}
+	
+	public static Project getProjectById(int id) {
+		return projectDao.getById(id);
 	}
 
 	public static Collection<Project> getAllProjects() {
@@ -129,9 +153,31 @@ public class Project {
 
 		return ret;
 	}
+	
+	public static void loadAllProjects() {
+		List<Project> projects = projectDao.getAll();
+	    for(Project project:projects)
+			PROJECTS.put(project.dbKeyId, project);
+	}
+
+	public static void save(Project project) {
+		projectDao.save(project);
+		PROJECTS.put(project.dbKeyId, project);		
+	}
+	
+	public static void deleteProjectsNotOnServer(List<Integer> idsOnServer) {
+		List<Long> deletedDbKeyIds = projectDao.deletedFromServer(idsOnServer);
+		for(Long dbKeyId:deletedDbKeyIds)
+			PROJECTS.remove(dbKeyId);
+	}
+	
+	public static void setProjectDao(IProjectDao dao) {
+		projectDao = dao;
+	}
 
 	protected static void clear() {
 		PROJECTS.clear();
-		PROJECTS.put(-1, new Project());
+		projectDao.deleteAll();
+		PROJECTS.put(-1l, new Project());
 	}
 }

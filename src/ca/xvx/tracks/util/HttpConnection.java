@@ -12,6 +12,7 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateExpiredException;
 import java.security.cert.X509Certificate;
 
 import javax.net.ssl.SSLContext;
@@ -234,7 +235,11 @@ public class HttpConnection {
 			if(certs != null && certs.length == 1) {
 				certs[0].checkValidity();
 			} else {
-				_manager.checkServerTrusted(certs, type);
+				try {
+					_manager.checkServerTrusted(certs, type);
+				} catch(CertificateException e) {
+					Log.e(TAG, "Catch CertificateException: " + e.getMessage());
+				}
 			}
 		}
 

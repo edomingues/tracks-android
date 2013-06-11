@@ -1,5 +1,9 @@
 package ca.xvx.tracks;
 
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+
 import android.util.Log;
 
 import org.xml.sax.Attributes;
@@ -17,9 +21,10 @@ public class ProjectXmlHandler extends DefaultHandler {
 
 	private final StringBuffer _text;
 
+	private List<Integer> idsOnServer = new LinkedList<Integer>();
+	
 	public ProjectXmlHandler() {
 		super();
-		Project.clear();
 		_text = new StringBuffer();
 	}
 	
@@ -31,6 +36,8 @@ public class ProjectXmlHandler extends DefaultHandler {
 			_state = Project.ProjectState.ACTIVE;
 			_position = -1;
 			_defaultContext = null;
+		} else if(qName.equals("nil-classes")) {
+			Project.deleteProjectsNotOnServer(Collections.<Integer>emptyList());
 		}
 		_text.setLength(0);
 	}
@@ -38,11 +45,8 @@ public class ProjectXmlHandler extends DefaultHandler {
 	@Override
 	public void endElement(String uri, String localName, String qName) {
 		if(qName.equals("project")) {
-			try {
-				new Project(_id, _name, _description, _position, _state, _defaultContext);
-			} catch(DuplicateProjectException e) {
-				Log.w(TAG, "Tried to add the same project twice, id: " + String.valueOf(_id), e);
-			}
+			Project.save(new Project(_id, _name, _description, _position, _state, _defaultContext));
+			idsOnServer.add(_id);
 		} else if(qName.equals("id")) {
 			_id = Integer.valueOf(_text.toString());
 		} else if(qName.equals("name")) {
@@ -62,11 +66,16 @@ public class ProjectXmlHandler extends DefaultHandler {
 			_position = Integer.valueOf(_text.toString());
 		} else if(qName.equals("default-context-id") && _text.length() > 0) {
 			try {
-				_defaultContext = TodoContext.getContext(Integer.valueOf(_text.toString()));
+				_defaultContext = TodoContext.getContextById(Integer.valueOf(_text.toString()));
 			} catch(NumberFormatException e) {
 				Log.w(TAG, "Unexpected number format: " + _text.toString(), e);
 				_defaultContext = null;
+			} catch(IllegalArgumentException e) { // Invalid context id
+				Log.w(TAG, "Invalid id: " + _text.toString(), e);
+				_defaultContext = null;
 			}
+		} else if(qName.equals("projects")) {
+			Project.deleteProjectsNotOnServer(idsOnServer);
 		}
 	}
 

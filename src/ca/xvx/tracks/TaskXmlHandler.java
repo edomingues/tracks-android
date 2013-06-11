@@ -1,14 +1,17 @@
 package ca.xvx.tracks;
 
-import android.util.Log;
-
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
 
 import org.xml.sax.Attributes;
 import org.xml.sax.helpers.DefaultHandler;
+
+import android.util.Log;
 
 public class TaskXmlHandler extends DefaultHandler {
 	private static final String TAG = "TaskXmlHandler";
@@ -25,9 +28,10 @@ public class TaskXmlHandler extends DefaultHandler {
 	private final StringBuffer _text;
 	private static final DateFormat DATEFORM = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ");
 
+	private List<Integer> taskIdsOnServer = new LinkedList<Integer>();
+	
 	public TaskXmlHandler() {
 		super();
-		Task.clear();
 		_text = new StringBuffer();
 	}
 	
@@ -42,6 +46,8 @@ public class TaskXmlHandler extends DefaultHandler {
 			_due = null;
 			_showFrom = null;
 			_err = false;
+		} else if(qName.equals("nil-classes")) {
+			Task.deleteTasksNotOnServer(Collections.<Integer>emptyList());
 		}
 		_text.setLength(0);
 	}
@@ -50,11 +56,9 @@ public class TaskXmlHandler extends DefaultHandler {
 	public void endElement(String uri, String localName, String qName) {
 		if(qName.equals("todo")) {
 			if(!_err) {
-				try {
-					new Task(_id, _description, _notes, _context, _project, _due, _showFrom);
-				} catch(DuplicateTaskException e) {
-					Log.w(TAG, "Tried to add the same task twice, id: " + String.valueOf(_id), e);
-				}
+				Task task = new Task(_id, _description, _notes, _context, _project, _due, _showFrom);
+				taskIdsOnServer.add(_id);
+				Task.checkConflictAndSave(task);
 			}
 		} else if(qName.equals("id")) {
 			_id = Integer.valueOf(_text.toString());
@@ -63,13 +67,26 @@ public class TaskXmlHandler extends DefaultHandler {
 		} else if(qName.equals("notes")) {
 			_notes = _text.toString();
 		} else if(qName.equals("context-id")) {
-			_context = TodoContext.getContext(Integer.parseInt(_text.toString()));
-			if(_context == null) {
+			try {
+				_context = TodoContext.getContextById(Integer.valueOf(_text.toString()));
+			} catch(NumberFormatException e) {
+				Log.w(TAG, "Unexpected number format: " + _text.toString(), e);
+				_context = null;
+				_err = true;
+			} catch(IllegalArgumentException e) { // Invalid context id
+				Log.w(TAG, "Invalid id: " + _text.toString(), e);
+				_context = null;
 				_err = true;
 			}
 		} else if(qName.equals("project-id")) {
 			if(_text.length() > 0) {
-				_project = Project.getProject(Integer.parseInt(_text.toString()));
+				try {
+					_project = Project.getProjectById(Integer.parseInt(_text.toString()));
+				} catch (NumberFormatException e) {
+					Log.w(TAG, "Unexpected number format: " + _text.toString(), e);
+				} catch(IllegalArgumentException e) { // Invalid context id
+					Log.w(TAG, "Invalid id: " + _text.toString(), e);
+				}
 			}
 		} else if(qName.equals("due") && _text.length() > 0) {
 			try {
@@ -83,6 +100,8 @@ public class TaskXmlHandler extends DefaultHandler {
 			} catch(ParseException e) {
 				Log.w(TAG, "Unexpected date format: " + _text.toString(), e);
 			}
+		} else if(qName.equals("todos")) {
+			Task.deleteTasksNotOnServer(taskIdsOnServer);
 		}
 	}
 

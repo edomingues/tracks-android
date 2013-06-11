@@ -81,7 +81,7 @@ public class TaskEditorActivity extends Activity {
 		pad = refreshProjects();
 
 		_commHandler = TracksCommunicator.getHandler();
-		int tno = intent.getIntExtra("task", -1);
+		long tno = intent.getLongExtra("task", -1);
 		if(tno >= 0) {
 			_task = Task.getTask(tno);
 			
@@ -225,7 +225,7 @@ public class TaskEditorActivity extends Activity {
 		Log.d(TAG, "Saving task!");
 		
 		Project newProject = (Project)_project.getSelectedItem();
-		if(newProject.getId() < 0) {
+		if(newProject != null && newProject.getId() < 0) {
 			newProject = null;
 		}
 		TodoContext newContext = (TodoContext)_context.getSelectedItem();
@@ -264,21 +264,27 @@ public class TaskEditorActivity extends Activity {
 					switch(msg.what) {
 					case TracksCommunicator.SUCCESS_CODE:
 						Log.d(TAG, "Saved successfully");
+						_task.setOutdated(false);
+						Task.save(_task);
 						p.dismiss();
 						setResult(SAVED);
 						finish();
 						break;
 					case TracksCommunicator.UPDATE_FAIL_CODE:
 						Log.w(TAG, "Save failed");
+						_task.setOutdated(true);
+						Task.save(_task);
 						p.dismiss();
-						Toast.makeText(context, R.string.ERR_save_general, Toast.LENGTH_LONG).show();
+						setResult(SAVED);		
+						finish();
+//						Toast.makeText(context, R.string.ERR_save_general, Toast.LENGTH_LONG).show();
 						// Reset task data to stay synced with server.
-						_task.setDescription(oldDesc);
-						_task.setNotes(oldNotes);
-						_task.setContext(oldContext);
-						_task.setProject(oldProject);
-						_task.setDue(oldDue);
-						_task.setShowFrom(oldShowFrom);
+//						_task.setDescription(oldDesc);
+//						_task.setNotes(oldNotes);
+//						_task.setContext(oldContext);
+//						_task.setProject(oldProject);
+//						_task.setDue(oldDue);
+//						_task.setShowFrom(oldShowFrom);
 						break;
 					}
 				}

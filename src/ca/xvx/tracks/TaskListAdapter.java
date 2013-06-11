@@ -44,8 +44,9 @@ public class TaskListAdapter extends BaseExpandableListAdapter {
 	public void notifyDataSetChanged() {
 		_contexts.clear();
 		_tasks.clear();
+		Task.loadAllTasks();
 		for(Task t : Task.getAllTasks()) {
-			if(!t.getContext().isHidden()) {
+			if(!t.getContext().isHidden() && !t.isDeleted() && !t.getDone()) {
 				if(_tasks.get(t.getContext()) == null) {
 					_contexts.add(t.getContext());
 					_tasks.put(t.getContext(), new Vector<Task>());

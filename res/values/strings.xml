@@ -27,11 +27,13 @@
   <string name="ERR_savecontext_general">Failed to save context. Check your connection and try again.</string>
   <string name="ERR_saveproject_baddata">Name must be provided.</string>
   <string name="ERR_saveproject_general">Failed to save project. Check your connection and try again.</string>
+  <string name="ERR_upload">Failed to upload. Check your connection and try again.</string>
 
   <string name="MSG_fetching">Fetching Data</string>  
   <string name="MSG_parsing">Parsing Data</string>
   <string name="MSG_saving">Saving</string>
   <string name="MSG_welcome">Welcome to Tracks for Android!  Please fill in your server and account settings, then press the back button to see your task list.  You can get back to this settings screen later from the menu.</string>
+  <string name="MSG_uploading">Uploading Data</string>
   
   <string name="MENU_settings">Settings</string>
   <string name="MENU_refresh">Refresh</string>

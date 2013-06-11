@@ -2,19 +2,33 @@ package ca.xvx.tracks;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+import android.util.Log;
+
+import ca.xvx.tracks.persistence.IHashDao;
+import ca.xvx.tracks.persistence.ITodoContextDao;
+
 public class TodoContext implements Comparable<TodoContext> {
+	private static final String TAG = "TodoContext";
+	
+	private long dbKeyId = -1;
 	private int _id;
 	private String _name;
 	private int _position;
 	private boolean _hide;
 	
+	private boolean outdated = false;
+	
 	// Singleton list of contexts
-	private static final Map<Integer, TodoContext> CONTEXTS;
+	private static final Map<Long, TodoContext> CONTEXTS;
+	
+	private static ITodoContextDao todoContextDao = ITodoContextDao.NULL;
+	private static IHashDao hashDao = IHashDao.NULL;
 	
 	static {
-		CONTEXTS = new HashMap<Integer, TodoContext>();
+		CONTEXTS = new HashMap<Long, TodoContext>();
 	}
 
 	public TodoContext(String name, int position, boolean hide) {
@@ -24,18 +38,26 @@ public class TodoContext implements Comparable<TodoContext> {
 		_hide = hide;
 	}
 
-	public TodoContext(int id, String name, int position, boolean hide) throws DuplicateContextException {
+	public TodoContext(int id, String name, int position, boolean hide) {
 		this(name, position, hide);
-		
-		if(CONTEXTS.containsKey(id)) {
-			throw new DuplicateContextException();
-		}
 
 		_id = id;
-		
-		CONTEXTS.put(id, this);
 	}
 
+	public long getDbKeyId() {
+		return dbKeyId;
+	}
+	
+	public void setDbKeyId(long id) {
+		long oldId = dbKeyId;
+		dbKeyId = id;
+		if(oldId < 0) {
+			if(!CONTEXTS.containsKey(id)) {
+				CONTEXTS.put(id, this);
+			}
+		}
+	}
+	
 	public int getId() {
 		return _id;
 	}
@@ -49,14 +71,7 @@ public class TodoContext implements Comparable<TodoContext> {
 	}
 	
 	public void setId(int id) {
-		int oid = _id;
 		_id = id;
-
-		if(oid < 0) {
-			if(!CONTEXTS.containsKey(id)) {
-				CONTEXTS.put(id, this);
-			}
-		}
 	}
 	
 	public String setName(String name) {
@@ -80,6 +95,14 @@ public class TodoContext implements Comparable<TodoContext> {
 		_hide = hide;
 		return oh;
 	}
+	
+	public boolean isOutdated() {
+		return outdated;
+	}
+	
+	public void setOutdated(boolean outdated) {
+		this.outdated = outdated;
+	}
 
 	@Override
 	public String toString() {
@@ -92,15 +115,93 @@ public class TodoContext implements Comparable<TodoContext> {
 	}
 
 	// Singleton behavior
-	public static TodoContext getContext(int id) {
+	public static TodoContext getContext(long id) {
 		return CONTEXTS.get(id);
+	}
+	
+	public static TodoContext getContextById(int id) {
+		return todoContextDao.getById(id);
 	}
 
 	public static Collection<TodoContext> getAllContexts() {
 		return CONTEXTS.values();
 	}
-
-	protected static void clear() {
-		CONTEXTS.clear();
+	
+	public static void loadAllContexts() {
+		loadUpdatedContexts();
 	}
+
+	public static void save(TodoContext context) {				
+		todoContextDao.save(context);
+		CONTEXTS.put(context.dbKeyId, context);		
+	}
+	
+	public static void checkConflictAndSave(TodoContext context) {
+		Log.v(TAG, "checkConflictAndSave");
+		int hash = hash(context);				
+		try {	
+			int prevHash = hashDao.get(context.getId());			
+			if(prevHash != hash) { // Changed on server since last time
+				Log.v(TAG, "Changed on server.");
+				
+				TodoContext contextLocal = todoContextDao.getById(context.getId());
+				if(contextLocal != null && contextLocal.isOutdated()) { // Local changed
+					Log.v(TAG, "Local changes, conflict.");
+					// Duplicate local to resolve conflict
+					contextLocal.dbKeyId = -1;
+					contextLocal._id = -1;
+					save(contextLocal);
+					save(context);
+				}
+				else {
+					save(context);
+				}
+			}
+		} catch(IllegalArgumentException e) {
+			// No previous hash on DB.
+			Log.d(TAG, "No previous hash.", e);
+			save(context);
+		}		
+		hashDao.put(context.getId(), hash);		
+	}
+	
+	public static void saveServerContext(TodoContext context) {
+		hashDao.put(context.getId(), hash(context));
+	}
+	
+	public static void deleteContextsNotOnServer(List<Integer> contextIdsOnServer) {
+		List<Long> deletedDbKeyIds = todoContextDao.deletedFromServer(contextIdsOnServer);
+		for(Long dbKeyId:deletedDbKeyIds)
+			CONTEXTS.remove(dbKeyId);
+	}
+	
+	public static void setTodoContextDao(ITodoContextDao dao) {
+		todoContextDao = dao;
+	}
+	
+	public static void setHashDao(IHashDao dao) {
+		hashDao = dao;
+	}
+	
+	private static void loadUpdatedContexts() {
+		List<TodoContext> contexts = todoContextDao.getAll();
+	    for(TodoContext context:contexts)
+			CONTEXTS.put(context.dbKeyId, context);
+	}
+	
+	private static int hash(TodoContext context) {
+		final int MULTIPLIER = 31;
+		
+		int hash = hashIfNotNull(context._id);
+		hash = hash * MULTIPLIER + hashIfNotNull(context._name);
+		hash = hash * MULTIPLIER + hashIfNotNull(context._position);
+		hash = hash * MULTIPLIER + hashIfNotNull(context._hide);
+		
+		return hash;
+	}
+	
+	private static int hashIfNotNull(Object object) {
+		return (object == null ? 0 : object.hashCode());
+	}	
+
 }

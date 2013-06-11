@@ -51,7 +51,7 @@ public class ProjectEditorActivity extends Activity {
 		cancelButt = (Button)findViewById(R.id.PEA_cancel);
 
 		_commHandler = TracksCommunicator.getHandler();
-		int pno = intent.getIntExtra("project", -1);
+		long pno = intent.getLongExtra("project", -1);
 		if(pno >= 0) {
 			_project = Project.getProject(pno);
 			
@@ -110,17 +110,23 @@ public class ProjectEditorActivity extends Activity {
 					switch(msg.what) {
 					case TracksCommunicator.SUCCESS_CODE:
 						Log.d(TAG, "Saved successfully");
+						_project.setOutdated(false);
+						Project.save(_project);
 						p.dismiss();
 						setResult(SAVED);
 						finish();
 						break;
 					case TracksCommunicator.UPDATE_FAIL_CODE:
 						Log.w(TAG, "Save failed");
+						_project.setOutdated(true);
+						Project.save(_project);
 						p.dismiss();
-						Toast.makeText(context, R.string.ERR_saveproject_general, Toast.LENGTH_LONG).show();
+						setResult(SAVED);		
+						finish();
+//						Toast.makeText(context, R.string.ERR_saveproject_general, Toast.LENGTH_LONG).show();
 						// Reset task data to stay synced with server.
-						_project.setName(oldName);
-						_project.setDescription(oldDescription);
+//						_project.setName(oldName);
+//						_project.setDescription(oldDescription);
 						break;
 					}
 				}

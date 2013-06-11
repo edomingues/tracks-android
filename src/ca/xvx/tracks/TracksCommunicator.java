@@ -1,25 +1,28 @@
 package ca.xvx.tracks;
 
-import android.util.Log;
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URISyntaxException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.concurrent.Semaphore;
 
-import ca.xvx.tracks.preferences.PreferenceConstants;
-import ca.xvx.tracks.preferences.PreferenceUtils;
-import ca.xvx.tracks.util.HttpConnection;
+import org.apache.http.HttpResponse;
+import org.xml.sax.SAXException;
 
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
+import android.util.Log;
 import android.util.Xml;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
-import java.text.SimpleDateFormat;
-import java.util.concurrent.Semaphore;
-
-import org.apache.http.HttpResponse;
-import org.xml.sax.SAXException;
+import ca.xvx.tracks.preferences.PreferenceConstants;
+import ca.xvx.tracks.preferences.PreferenceUtils;
+import ca.xvx.tracks.util.HttpConnection;
 
 public class TracksCommunicator extends HandlerThread {
 	private static final String TAG = "TracksCommunicator";
@@ -98,7 +101,7 @@ public class TracksCommunicator extends HandlerThread {
 
 		Message.obtain(replyTo, PARSE_CODE).sendToTarget();
 		
-		try {
+		try {						
 			Xml.parse(ret[0], Xml.Encoding.UTF_8, new ContextXmlHandler());
 			Xml.parse(ret[1], Xml.Encoding.UTF_8, new ProjectXmlHandler());
 			Xml.parse(ret[2], Xml.Encoding.UTF_8, new TaskXmlHandler());
@@ -116,50 +119,72 @@ public class TracksCommunicator extends HandlerThread {
 	}
 
 	private void completeTask(TracksAction act) {
-		final boolean badcert = _prefs.getBoolean(PreferenceConstants.BADCERT, false);
-		final String username = _prefs.getString(PreferenceConstants.USERNAME, null);
-		final String password = _prefs.getString(PreferenceConstants.PASSWORD, null);
-
 		Task t = (Task)act.target;
-		HttpResponse r;
 
 		Log.d(TAG, "Marking task " + String.valueOf(t.getId()) + " as done");
 
+		boolean failed = false;
 		try {
-			r = HttpConnection.put(PreferenceUtils.getUri(_prefs, "todos/" +
-													 String.valueOf(t.getId()) + "/toggle_check.xml"),
-								   username,
-								   password,
-								   null, badcert);
+			completeTask(t);
 		} catch(Exception e) {
-			return;
+			Log.w(TAG, "Exception caught while marking task as done on server.", e);
+			failed = true;
 		}
 		
-		t.remove();
+		if(failed) {
+			t.setDone(true);
+			t.setOutdated(true);
+			Task.save(t);
+		}
+		else {
+			t.remove();
+		}		
 		act.notify.sendEmptyMessage(0);
 	}
-
-	private void deleteTask(TracksAction act) {
+	
+	private void completeTask(Task task) throws URISyntaxException, Exception {
 		final boolean badcert = _prefs.getBoolean(PreferenceConstants.BADCERT, false);
 		final String username = _prefs.getString(PreferenceConstants.USERNAME, null);
 		final String password = _prefs.getString(PreferenceConstants.PASSWORD, null);
+		
+		HttpConnection.put(PreferenceUtils.getUri(_prefs, "todos/" +
+				 String.valueOf(task.getId()) + "/toggle_check.xml"),
+				 username,
+				 password,
+				 null, badcert);
+	}
 
+	private void deleteTask(TracksAction act) {
 		Task t = (Task)act.target;
-		HttpResponse r;
 
 		Log.d(TAG, "Deleting task " + String.valueOf(t.getId()));
 
+		boolean failed = false;
 		try {
-			r = HttpConnection.delete(PreferenceUtils.getUri(_prefs, "todos/" +
-														String.valueOf(t.getId()) + ".xml"),
-									  username,
-									  password, badcert);
-		} catch(Exception e) {
-			return;
+			deleteTask(t);
+		} catch(Exception e) {			
+			failed = true;
 		}
 		
-		t.remove();
+		if(failed) {
+			t.setDeleted(true);
+			t.setOutdated(true);
+			Task.save(t);
+		} else {
+			t.remove();
+		}
 		act.notify.sendEmptyMessage(0);
+	}
+	
+	private void deleteTask(Task task) throws URISyntaxException, Exception {
+		final boolean badcert = _prefs.getBoolean(PreferenceConstants.BADCERT, false);
+		final String username = _prefs.getString(PreferenceConstants.USERNAME, null);
+		final String password = _prefs.getString(PreferenceConstants.PASSWORD, null);
+		
+		HttpConnection.delete(PreferenceUtils.getUri(_prefs, "todos/" +
+				String.valueOf(task.getId()) + ".xml"),
+					username,
+					password, badcert);
 	}
 
 	private void updateTask(TracksAction act) {
@@ -352,6 +377,248 @@ public class TracksCommunicator extends HandlerThread {
 			act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
 		}		
 	}
+	
+	private void uploadTasks(TracksAction act) {
+		final String server = _prefs.getString(PreferenceConstants.SERVER, null);
+		final boolean badcert = _prefs.getBoolean(PreferenceConstants.BADCERT, false);
+		final String username = _prefs.getString(PreferenceConstants.USERNAME, null);
+		final String password = _prefs.getString(PreferenceConstants.PASSWORD, null);
+
+		Log.d(TAG, "Uploading tasks");
+
+		Handler replyTo = act.notify;
+		
+		if(server == null || username == null || password == null) {
+			Message.obtain(replyTo, PREFS_FAIL_CODE).sendToTarget();
+			return;
+		}
+		
+		boolean error = false;
+		Iterator<TodoContext> itContexts = TodoContext.getAllContexts().iterator();
+		
+		while(itContexts.hasNext() && !error) {
+			TodoContext c = itContexts.next();
+			if(c.isOutdated()) {
+				Log.d(TAG, "Updating context " + String.valueOf(c.getId()));
+
+				StringBuilder xml = new StringBuilder("<context>");
+				xml.append("<name>"); xml.append(c.getName()); xml.append("</name>");
+				xml.append("<hide type=\"boolean\">"); xml.append(c.isHidden() ? "true" : "false"); xml.append("</hide>");
+				xml.append("<position type=\"integer\">"); xml.append(String.valueOf(c.getPosition())); xml.append("</position>");
+				xml.append("</context>");
+
+				Log.v(TAG, "Sending: " + xml.toString());
+
+				try {
+					HttpResponse r;
+					int resp;
+
+					if(c.getId() < 0) {
+						Log.v(TAG, "Posting to contexts.xml to create new context");
+						r = HttpConnection.post(PreferenceUtils.getUri(_prefs, "contexts.xml"), username, password,
+												xml.toString(), badcert);
+					} else {
+						Log.v(TAG, "Putting to update existing context");
+						r = HttpConnection.put(PreferenceUtils.getUri(_prefs,
+																 "contexts/" + String.valueOf(c.getId()) + ".xml"),
+											   username, password, xml.toString(), badcert);
+					}
+
+					resp = r.getStatusLine().getStatusCode();
+
+					if(resp == 200) {
+						Log.d(TAG, "Successfully updated context");
+//						act.notify.sendEmptyMessage(SUCCESS_CODE);
+					} else if(resp == 201) {
+						Log.d(TAG, "Successfully created context.");
+						String got = r.getFirstHeader("Location").getValue();
+						got = got.substring(got.lastIndexOf('/') + 1);
+						int cno = Integer.parseInt(got);
+						c.setId(cno);
+						Log.d(TAG, "ID of new context is: " + String.valueOf(cno));
+//						act.notify.sendEmptyMessage(SUCCESS_CODE);						
+					} else {
+						Log.w(TAG, "Unexpected response from server: " + String.valueOf(resp));
+//						act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+						error = true;
+					}
+				} catch(Exception e) {
+					Log.w(TAG, "Error updating context", e);
+//					act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+					error = true;
+				}	
+				if(!error) {
+					c.setOutdated(false);
+					TodoContext.saveServerContext(c);
+				}
+			}
+		}
+		
+		Iterator<Project> itProjects = Project.getAllProjects().iterator();
+		while(itProjects.hasNext() && !error) {
+			Project p = itProjects.next();
+			if(p.isOutdated()) {
+				Log.d(TAG, "Updating project " + String.valueOf(p.getId()));
+
+				StringBuilder xml = new StringBuilder("<project>");
+				xml.append("<name>"); xml.append(p.getName()); xml.append("</name>");
+				xml.append("<description>"); xml.append(p.getDescription() == null ? "" : p.getDescription()); xml.append("</description>");
+				xml.append("</project>");
+
+				Log.v(TAG, "Sending: " + xml.toString());
+
+				try {
+					HttpResponse r;
+					int resp;
+
+					if(p.getId() < 0) {
+						Log.v(TAG, "Posting to projects.xml to create new project");
+						r = HttpConnection.post(PreferenceUtils.getUri(_prefs, "projects.xml"), username, password,
+												xml.toString(), badcert);
+					} else {
+						Log.v(TAG, "Putting to update existing project");
+						r = HttpConnection.put(PreferenceUtils.getUri(_prefs,
+																 "projects/" + String.valueOf(p.getId()) + ".xml"),
+											   username, password, xml.toString(), badcert);
+					}
+
+					resp = r.getStatusLine().getStatusCode();
+
+					if(resp == 200) {
+						Log.d(TAG, "Successfully updated project");
+						//act.notify.sendEmptyMessage(SUCCESS_CODE);
+						p.setOutdated(false);
+					} else if(resp == 201) {
+						Log.d(TAG, "Successfully created project.");
+						String got = r.getFirstHeader("Location").getValue();
+						got = got.substring(got.lastIndexOf('/') + 1);
+						int pno = Integer.parseInt(got);
+						p.setId(pno);
+						Log.d(TAG, "ID of new project is: " + String.valueOf(pno));
+//						act.notify.sendEmptyMessage(SUCCESS_CODE);
+						p.setOutdated(false);
+					} else {
+						Log.w(TAG, "Unexpected response from server: " + String.valueOf(resp));
+//						act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+						error = true;
+					}
+				} catch(Exception e) {
+					Log.e(TAG, "Error updating project", e);
+//					act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+					error = true;
+				}	
+			}
+		}
+		
+		Iterator<Task> itTasks = new ArrayList<Task>(Task.getAllTasks()).iterator();
+		while(itTasks.hasNext() && !error) {
+			Task t = itTasks.next();
+			if(t.isDeleted()) {
+				try {
+					deleteTask(t);	
+					t.remove();
+				} catch (Exception e) {
+					Log.e(TAG, "Error deleting task", e);
+					error = true;
+				}
+			} else if(t.isOutdated()) {
+				Log.d(TAG, "Updating task " + String.valueOf(t.getId()));
+
+				StringBuilder xml = new StringBuilder("<todo>");
+				xml.append("<description>"); xml.append(t.getDescription()); xml.append("</description>");
+				xml.append("<notes>"); xml.append(t.getNotes() == null ? "" : t.getNotes()); xml.append("</notes>");
+				xml.append("<context-id type=\"integer\">");
+				xml.append(String.valueOf(t.getContext().getId())); xml.append("</context-id>");
+				
+				xml.append("<project-id type=\"integer\"");
+				if(t.getProject() == null) {
+					xml.append(" nil=\"true\"></project-id>");
+				} else {
+					xml.append(">"); xml.append(String.valueOf(t.getProject().getId())); xml.append("</project-id>");
+				}
+				
+				xml.append("<due type=\"datetime\"");
+				if(t.getDue() == null) {
+					xml.append(" nil=\"true\"></due>");
+				} else {
+					xml.append(">");
+					xml.append(DATEFORM.format(t.getDue()));
+					xml.append("</due>");
+				}
+				
+				xml.append("<show-from type=\"datetime\"");
+				if(t.getShowFrom() == null) {
+					xml.append(" nil=\"true\"></show-from>");
+				} else {
+					xml.append(">");
+					xml.append(DATEFORM.format(t.getShowFrom()));
+					xml.append("</show-from>");
+				}
+				
+				if(t.getDone()) {
+					xml.append("<state>completed</state>");
+					if(t.completedAt() != null)
+						xml.append("<completed-at type=\"datetime\">")
+						   .append(DATEFORM.format(t.completedAt()))
+						   .append("</completed-at>");
+				}
+				
+
+				xml.append("</todo>");
+
+				Log.v(TAG, "Sending: " + xml.toString());
+
+				try {
+					HttpResponse r;
+					int resp;
+
+					if(t.getId() < 0) {
+						Log.v(TAG, "Posting to todos.xml to create new task");
+						r = HttpConnection.post(PreferenceUtils.getUri(_prefs, "todos.xml"), username, password,
+												xml.toString(), badcert);
+					} else {
+						Log.v(TAG, "Putting to update existing task");
+						r = HttpConnection.put(PreferenceUtils.getUri(_prefs,
+																 "todos/" + String.valueOf(t.getId()) + ".xml"),
+											   username, password, xml.toString(), badcert);
+					}
+
+					resp = r.getStatusLine().getStatusCode();
+
+					if(resp == 200) {
+						Log.d(TAG, "Successfully updated task");
+//						act.notify.sendEmptyMessage(SUCCESS_CODE);
+					} else if(resp == 201) {
+						Log.d(TAG, "Successfully created task.");
+						String got = r.getFirstHeader("Location").getValue();
+						got = got.substring(got.lastIndexOf('/') + 1);
+						int tno = Integer.parseInt(got);
+						t.setId(tno);
+						Task.save(t);
+						Log.d(TAG, "ID of new task is: " + String.valueOf(tno));
+//						act.notify.sendEmptyMessage(SUCCESS_CODE);						
+					} else {
+						Log.w(TAG, "Unexpected response from server: " + String.valueOf(resp));
+//						act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+						error = true;
+					}
+				} catch(Exception e) {
+					Log.e(TAG, "Error updating task", e);
+//					act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+					error = true;
+				}			
+				if(!error) {
+					t.setOutdated(false);
+					Task.saveServerTask(t);
+				}
+			}
+		}
+		
+		if(error)
+			act.notify.sendEmptyMessage(UPDATE_FAIL_CODE);
+		else
+			act.notify.sendEmptyMessage(SUCCESS_CODE);
+	}
 
 	private class CommHandler extends Handler {
 		@Override
@@ -381,6 +648,10 @@ public class TracksCommunicator extends HandlerThread {
 
 			case UPDATE_PROJECT:
 				updateProject(act);
+				break;
+				
+			case UPLOAD_TASKS:
+				uploadTasks(act);
 				break;
 			}
 		}

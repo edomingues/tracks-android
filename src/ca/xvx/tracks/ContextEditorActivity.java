@@ -52,7 +52,7 @@ public class ContextEditorActivity extends Activity {
 		cancelButt = (Button)findViewById(R.id.CEA_cancel);
 
 		_commHandler = TracksCommunicator.getHandler();
-		int cno = intent.getIntExtra("context", -1);
+		long cno = intent.getLongExtra("context", -1);
 		if(cno >= 0) {
 			_context = TodoContext.getContext(cno);
 			
@@ -110,17 +110,23 @@ public class ContextEditorActivity extends Activity {
 					switch(msg.what) {
 					case TracksCommunicator.SUCCESS_CODE:
 						Log.d(TAG, "Saved successfully");
+						_context.setOutdated(false);
+						TodoContext.save(_context);
 						p.dismiss();
-						setResult(SAVED);
+						setResult(SAVED);		
 						finish();
 						break;
 					case TracksCommunicator.UPDATE_FAIL_CODE:
 						Log.w(TAG, "Save failed");
+						_context.setOutdated(true);
+						TodoContext.save(_context);
 						p.dismiss();
-						Toast.makeText(context, R.string.ERR_savecontext_general, Toast.LENGTH_LONG).show();
+						//Toast.makeText(context, R.string.ERR_savecontext_general, Toast.LENGTH_LONG).show();
 						// Reset task data to stay synced with server.
-						_context.setName(oldName);
-						_context.setHidden(oldHide);
+//						_context.setName(oldName);
+//						_context.setHidden(oldHide);
+						setResult(SAVED);		
+						finish();
 						break;
 					}
 				}
