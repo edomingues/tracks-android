@@ -1,17 +1,9 @@
-Tracks for Android
+Tracks for Android (with offline support)
 ==================
 
 An Android application for the popular [Tracks](http://www.getontracks.org) todo
-list.  Pertinent links:
-
-* [Project Homepage](http://xvx.ca/code/tracks-android)
-* [Source Code](http://github.com/adamwg/tracks-android)
-
-Compiling
----------
-
-Be sure to point local.properties at your Android SDK.  Then ant debug should
-work.
+list. This version is based on [this version] (http://github.com/adamwg/tracks-android)
+ but allows the user to work offline on the todo list and sync later with server when online.
 
 License
 -------
