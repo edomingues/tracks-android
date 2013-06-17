@@ -1,10 +1,6 @@
 package ca.xvx.tracks;
 
-import android.util.Log;
-
 import android.app.Activity;
-import android.app.DatePickerDialog;
-import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -12,16 +8,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.text.format.DateFormat;
+import android.util.Log;
 import android.view.View;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.Toast;
-
-import java.util.Calendar;
-import java.util.Comparator;
-import java.util.Date;
 
 public class ContextEditorActivity extends Activity {
 	private static final String TAG = "ContextEditorActivity";

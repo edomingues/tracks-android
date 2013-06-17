@@ -20,9 +20,13 @@ import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
+
+import ca.xvx.tracks.Project.ProjectState;
 
 public class TaskEditorActivity extends Activity {
 	private static final String TAG = "TaskEditorActivity";
@@ -174,7 +178,7 @@ public class TaskEditorActivity extends Activity {
 
 	private ArrayAdapter<Project> refreshProjects() {
 		ArrayAdapter<Project> pad = new ArrayAdapter<Project>(this, android.R.layout.simple_spinner_item,
-															  Project.getActiveProjects().toArray(new Project[0]));
+															  prependBlankProject(Project.getActiveProjects()).toArray(new Project[0]));
 		pad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
 		pad.sort(new Comparator<Project>() {
 				@Override
@@ -185,6 +189,17 @@ public class TaskEditorActivity extends Activity {
 		_project.setAdapter(pad);
 
 		return pad;
+	}
+	
+	private Collection<Project> prependBlankProject(Collection<Project> projects) {
+		ArrayList<Project> newList = new ArrayList<Project>(projects.size()+1);
+		newList.add(createBlankProject());
+		newList.addAll(projects);
+		return newList;
+	}
+	
+	private Project createBlankProject() {
+		return new Project("", "", 0, ProjectState.ACTIVE, new TodoContext("", 0, true));
 	}
 	
 	private ArrayAdapter<TodoContext> refreshContexts() {

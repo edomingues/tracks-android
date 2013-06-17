@@ -126,6 +126,33 @@ public class Project {
 	public String toString() {
 		return _name;
 	}
+	
+	@Override
+	public boolean equals(Object o) {
+		if(!(o instanceof Project))
+			return false;
+		Project other = (Project)o;
+		if(this==other)
+			return true;
+		if(this._id>=0 || other._id>=0)
+			return this._id == other._id;
+		if(this.dbKeyId>=0 && other.dbKeyId>=0)
+			return this.dbKeyId == other.dbKeyId;
+		return false;
+	}
+	
+	@Override
+	public int hashCode() {
+		final int MASK = 0x3fffffff;
+		int hash;
+		if(_id>=0)
+			hash =  _id & MASK;
+		else if(dbKeyId>=0)
+			hash = 0x40000000 | (((int)dbKeyId) & MASK);
+		else
+			hash = 0x80000000 | (super.hashCode() & MASK);
+		return hash;
+	}
 
 	public static Project getProject(long id) {
 		return PROJECTS.get(id);
